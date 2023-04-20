@@ -32,6 +32,7 @@ Copyright (c) 2015-2016 Xiaowei Zhu, Tsinghua University
 #include <thread>
 #include <mutex>
 #include <functional>
+#include <sstream>
 
 #include "core/atomic.hpp"
 #include "core/bitmap.hpp"
@@ -57,6 +58,27 @@ struct ThreadState {
   VertexId end;
   ThreadStatus status;
 };
+
+struct CombBLASHeader {
+  char magic[4];  // HKDT
+  uint64_t version;
+  uint64_t row_size;
+  uint64_t kind;  // 0
+  uint64_t n;
+  uint64_t m;
+  uint64_t nnz;
+
+  void print() const {
+    printf("CombBLASHeader:\n");
+    printf(".magic: %c%c%c%c\n", magic[0], magic[1], magic[2], magic[3]);
+    printf(".version: %lu\n", version);
+    printf(".row_size: %lu\n", row_size);
+    printf(".kind: %lu\n", kind);
+    printf(".n: %lu\n", n);
+    printf(".m: %lu\n", m);
+    printf(".nnz: %lu\n", nnz);
+  }
+} __attribute__((packed));
 
 struct MessageBuffer {
   size_t capacity;
@@ -140,6 +162,9 @@ public:
   MessageBuffer *** send_buffer; // MessageBuffer* [partitions] [sockets]; numa-aware
   MessageBuffer *** recv_buffer; // MessageBuffer* [partitions] [sockets]; numa-aware
 
+  CombBLASHeader combblas_header;
+  bool pattern;
+
   Graph() {
     threads = numa_num_configured_cpus();
     sockets = numa_num_configured_nodes();
@@ -164,13 +189,22 @@ public:
     assert( numa_available() != -1 );
     assert( sizeof(unsigned long) == 8 ); // assume unsigned long is 64-bit
 
-    char nodestring[sockets*2+1];
-    nodestring[0] = '0';
+    // char nodestring[sockets*2+1];
+    // nodestring[0] = '0';
+    // for (int s_i=1;s_i<sockets;s_i++) {
+    //   nodestring[s_i*2-1] = ',';
+    //   nodestring[s_i*2] = '0'+s_i;
+    // }
+    // nodestring[sockets*2] = '\0';
+
+    std::ostringstream oss;
+    oss << "0";
     for (int s_i=1;s_i<sockets;s_i++) {
-      nodestring[s_i*2-1] = ',';
-      nodestring[s_i*2] = '0'+s_i;
+      oss << "," << s_i;
     }
-    struct bitmask * nodemask = numa_parse_nodestring(nodestring);
+    std::string ns = oss.str();
+
+    struct bitmask * nodemask = numa_parse_nodestring(ns.c_str());
     numa_set_interleave_mask(nodemask);
 
     omp_set_dynamic(0);
@@ -238,7 +272,7 @@ public:
 
   // deallocate a vertex array
   template<typename T>
-  T * dealloc_vertex_array(T * array) {
+  void dealloc_vertex_array(T * array) {
     numa_free(array, sizeof(T) * vertices);
   }
 
@@ -346,6 +380,44 @@ public:
     assert(false);
   }
 
+  void read_combblas_header(int fin, VertexId *vertices) {
+    CombBLASHeader *header = &combblas_header;
+
+    // read the entire header
+    if (read(fin, header, sizeof(CombBLASHeader)) != sizeof(CombBLASHeader)) {
+      printf("Error: failed to read the header of the CombBLAS file\n");
+      exit(EXIT_FAILURE);
+    }
+
+    header->print();
+
+    // check the header
+    if (strncmp(header->magic, "HKDT", 4) != 0) {
+      printf("Error: the CombBLAS file is corrupted (magic bytes mismatch)\n");
+      exit(EXIT_FAILURE);
+    }
+
+    if (header->row_size == 2 * sizeof(VertexId) && edge_data_size > 0) {
+      // implicit edge data, we'll just initialize later with 1
+      // printf("Info: implicit edge data detected, will be initialized with 1\n");
+      // pattern = true;
+      // TODO: support implicit edge data
+      printf("Error: implicit edge data for CombBLAS binary is not supported\n");
+      exit(EXIT_FAILURE);
+    } else if (header->row_size != edge_unit_size) {
+      printf("Error: CombBLAS row size mismatch, expected %lu, actual %lu\n", edge_unit_size, header->row_size);
+      exit(EXIT_FAILURE);
+    }
+
+    if (*vertices == 0) {
+      *vertices = header->n;
+      this->vertices = header->n;
+    } else if (*vertices != header->n) {
+      printf("Error: vertex count mismatch, expected %u, actual %u\n", *vertices, header->n);
+      exit(EXIT_FAILURE);
+    }
+  }
+
   // load a directed graph and make it undirected
   void load_undirected_from_directed(std::string path, VertexId vertices) {
     double prep_time = 0;
@@ -357,7 +429,7 @@ public:
 
     this->vertices = vertices;
     long total_bytes = file_size(path.c_str());
-    this->edges = total_bytes / edge_unit_size;
+    this->edges = (total_bytes - sizeof(CombBLASHeader)) / edge_unit_size;
     #ifdef PRINT_DEBUG_MESSAGES
     if (partition_id==0) {
       printf("|V| = %u, |E| = %lu\n", vertices, edges);
@@ -369,10 +441,13 @@ public:
       read_edges += edges % partitions;
     }
     long bytes_to_read = edge_unit_size * read_edges;
-    long read_offset = edge_unit_size * (edges / partitions * partition_id);
+    long read_offset = edge_unit_size * (edges / partitions * partition_id) + sizeof(CombBLASHeader);
     long read_bytes;
     int fin = open(path.c_str(), O_RDONLY);
     EdgeUnit<EdgeData> * read_edge_buffer = new EdgeUnit<EdgeData> [CHUNKSIZE];
+
+    // read the header
+    read_combblas_header(fin, &vertices);
 
     out_degree = alloc_interleaved_vertex_array<VertexId>();
     for (VertexId v_i=0;v_i<vertices;v_i++) {
@@ -390,6 +465,11 @@ public:
       assert(curr_read_bytes>=0);
       read_bytes += curr_read_bytes;
       EdgeId curr_read_edges = curr_read_bytes / edge_unit_size;
+      // fix off by one
+      for (EdgeId e_i=0;e_i<curr_read_edges;e_i++) {
+        read_edge_buffer[e_i].src -= 1;
+        read_edge_buffer[e_i].dst -= 1;
+      }
       // #pragma omp parallel for
       for (EdgeId e_i=0;e_i<curr_read_edges;e_i++) {
         VertexId src = read_edge_buffer[e_i].src;
@@ -560,6 +640,11 @@ public:
         assert(curr_read_bytes>=0);
         read_bytes += curr_read_bytes;
         EdgeId curr_read_edges = curr_read_bytes / edge_unit_size;
+        // fix off by one
+        for (EdgeId e_i=0;e_i<curr_read_edges;e_i++) {
+          read_edge_buffer[e_i].src -= 1;
+          read_edge_buffer[e_i].dst -= 1;
+        }
         for (EdgeId e_i=0;e_i<curr_read_edges;e_i++) {
           VertexId dst = read_edge_buffer[e_i].dst;
           int i = get_partition_id(dst);
@@ -683,6 +768,11 @@ public:
         assert(curr_read_bytes>=0);
         read_bytes += curr_read_bytes;
         EdgeId curr_read_edges = curr_read_bytes / edge_unit_size;
+        // fix off by one
+        for (EdgeId e_i=0;e_i<curr_read_edges;e_i++) {
+          read_edge_buffer[e_i].src -= 1;
+          read_edge_buffer[e_i].dst -= 1;
+        }
         for (EdgeId e_i=0;e_i<curr_read_edges;e_i++) {
           VertexId dst = read_edge_buffer[e_i].dst;
           int i = get_partition_id(dst);
@@ -779,22 +869,26 @@ public:
 
     this->vertices = vertices;
     long total_bytes = file_size(path.c_str());
-    this->edges = total_bytes / edge_unit_size;
+    this->edges = (total_bytes - sizeof(CombBLASHeader)) / edge_unit_size;
     #ifdef PRINT_DEBUG_MESSAGES
     if (partition_id==0) {
       printf("|V| = %u, |E| = %lu\n", vertices, edges);
     }
     #endif
 
+
     EdgeId read_edges = edges / partitions;
     if (partition_id==partitions-1) {
       read_edges += edges % partitions;
     }
     long bytes_to_read = edge_unit_size * read_edges;
-    long read_offset = edge_unit_size * (edges / partitions * partition_id);
+    long read_offset = edge_unit_size * (edges / partitions * partition_id) + sizeof(CombBLASHeader);
     long read_bytes;
     int fin = open(path.c_str(), O_RDONLY);
     EdgeUnit<EdgeData> * read_edge_buffer = new EdgeUnit<EdgeData> [CHUNKSIZE];
+
+    // read the header
+    read_combblas_header(fin, &vertices);
 
     out_degree = alloc_interleaved_vertex_array<VertexId>();
     for (VertexId v_i=0;v_i<vertices;v_i++) {
@@ -812,6 +906,11 @@ public:
       assert(curr_read_bytes>=0);
       read_bytes += curr_read_bytes;
       EdgeId curr_read_edges = curr_read_bytes / edge_unit_size;
+      // fix off by one
+      for (EdgeId e_i=0;e_i<curr_read_edges;e_i++) {
+        read_edge_buffer[e_i].src -= 1;
+        read_edge_buffer[e_i].dst -= 1;
+      }
       #pragma omp parallel for
       for (EdgeId e_i=0;e_i<curr_read_edges;e_i++) {
         VertexId src = read_edge_buffer[e_i].src;
@@ -983,6 +1082,11 @@ public:
         assert(curr_read_bytes>=0);
         read_bytes += curr_read_bytes;
         EdgeId curr_read_edges = curr_read_bytes / edge_unit_size;
+        // fix off by one
+        for (EdgeId e_i=0;e_i<curr_read_edges;e_i++) {
+          read_edge_buffer[e_i].src -= 1;
+          read_edge_buffer[e_i].dst -= 1;
+        }
         for (EdgeId e_i=0;e_i<curr_read_edges;e_i++) {
           VertexId dst = read_edge_buffer[e_i].dst;
           int i = get_partition_id(dst);
@@ -1090,6 +1194,11 @@ public:
         assert(curr_read_bytes>=0);
         read_bytes += curr_read_bytes;
         EdgeId curr_read_edges = curr_read_bytes / edge_unit_size;
+        // fix off by one
+        for (EdgeId e_i=0;e_i<curr_read_edges;e_i++) {
+          read_edge_buffer[e_i].src -= 1;
+          read_edge_buffer[e_i].dst -= 1;
+        }
         for (EdgeId e_i=0;e_i<curr_read_edges;e_i++) {
           VertexId dst = read_edge_buffer[e_i].dst;
           int i = get_partition_id(dst);
@@ -1180,6 +1289,11 @@ public:
         assert(curr_read_bytes>=0);
         read_bytes += curr_read_bytes;
         EdgeId curr_read_edges = curr_read_bytes / edge_unit_size;
+        // fix off by one
+        for (EdgeId e_i=0;e_i<curr_read_edges;e_i++) {
+          read_edge_buffer[e_i].src -= 1;
+          read_edge_buffer[e_i].dst -= 1;
+        }
         for (EdgeId e_i=0;e_i<curr_read_edges;e_i++) {
           VertexId src = read_edge_buffer[e_i].src;
           int i = get_partition_id(src);
@@ -1287,6 +1401,11 @@ public:
         assert(curr_read_bytes>=0);
         read_bytes += curr_read_bytes;
         EdgeId curr_read_edges = curr_read_bytes / edge_unit_size;
+        // fix off by one
+        for (EdgeId e_i=0;e_i<curr_read_edges;e_i++) {
+          read_edge_buffer[e_i].src -= 1;
+          read_edge_buffer[e_i].dst -= 1;
+        }
         for (EdgeId e_i=0;e_i<curr_read_edges;e_i++) {
           VertexId src = read_edge_buffer[e_i].src;
           int i = get_partition_id(src);

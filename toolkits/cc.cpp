@@ -90,7 +90,7 @@ void compute(Graph<Empty> * graph) {
   graph->gather_vertex_array(label, 0);
   if (graph->partition_id==0) {
     VertexId * count = graph->alloc_vertex_array<VertexId>();
-    graph->fill_vertex_array(count, 0u);
+    graph->fill_vertex_array(count, static_cast<VertexId>(0));
     for (VertexId v_i=0;v_i<graph->vertices;v_i++) {
       count[label[v_i]] += 1;
     }
