@@ -21,7 +21,7 @@ Copyright (c) 2015-2016 Xiaowei Zhu, Tsinghua University
 
 struct Empty { };
 
-typedef uint32_t VertexId;
+typedef uint64_t VertexId;
 typedef uint64_t EdgeId;
 
 template <typename EdgeData>
