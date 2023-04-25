@@ -42,7 +42,6 @@ Copyright (c) 2015-2016 Xiaowei Zhu, Tsinghua University
 #include "core/time.hpp"
 #include "core/type.hpp"
 
-using namespace std;
 
 enum ThreadStatus {
   WORKING,
