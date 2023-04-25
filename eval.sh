@@ -2,9 +2,9 @@
 # run module load perftools-lite
 # use CC as the compiler
 
-# run salloc -N 2 -C cpu -q interactive -t 01:00:00 before running this script
+# run salloc -N 1 -C cpu -q interactive -t 01:00:00 before running this script
 
-make -j 40
+make -j40
 
 logs_dir="logs"
 mkdir $logs_dir
