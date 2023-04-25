@@ -111,8 +111,8 @@ void compute(Graph<Empty> * graph, VertexId root) {
 int main(int argc, char ** argv) {
   MPI_Instance mpi(&argc, &argv);
 
-  if (argc<4) {
-    printf("bfs [file] [vertices] [root]\n");
+  if (argc<5) {
+    printf("bfs [file] [vertices] [root] [extra-runs]\n");
     exit(-1);
   }
 
@@ -120,9 +120,10 @@ int main(int argc, char ** argv) {
   graph = new Graph<Empty>();
   VertexId root = std::atoi(argv[3]);
   graph->load_directed(argv[1], std::atoi(argv[2]));
-
   compute(graph, root);
-  for (int run=0;run<5;run++) {
+
+  int nruns = std::atoi(argv[4]);
+  for (int run=0;run<nruns;run++) {
     compute(graph, root);
   }
 

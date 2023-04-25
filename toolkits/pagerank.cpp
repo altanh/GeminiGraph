@@ -131,8 +131,8 @@ void compute(Graph<Empty> * graph, int iterations) {
 int main(int argc, char ** argv) {
   MPI_Instance mpi(&argc, &argv);
 
-  if (argc<4) {
-    printf("pagerank [file] [vertices] [iterations]\n");
+  if (argc<5) {
+    printf("pagerank [file] [vertices] [iterations] [extra-runs]\n");
     exit(-1);
   }
 
@@ -142,6 +142,8 @@ int main(int argc, char ** argv) {
   int iterations = std::atoi(argv[3]);
 
   compute(graph, iterations);
+
+  int nruns = std::atoi(argv[4]);
   for (int run=0;run<5;run++) {
     compute(graph, iterations);
   }

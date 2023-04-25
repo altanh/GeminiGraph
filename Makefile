@@ -3,8 +3,8 @@ TARGETS= toolkits/bc toolkits/bfs toolkits/cc toolkits/pagerank toolkits/sssp
 MACROS= 
 # MACROS= -D PRINT_DEBUG_MESSAGES
 
-MPICXX= mpicxx
-CXXFLAGS= -O3 -Wall -std=c++11 -g -fopenmp -march=native -I$(ROOT_DIR) $(MACROS)
+MPICXX= CC
+CXXFLAGS= -O3 -Wall -std=c++11 -g -fopenmp -march=native -I$(ROOT_DIR) $(MACROS) -target-accel=host
 SYSLIBS= -lnuma
 HEADERS= $(shell find . -name '*.hpp')
 

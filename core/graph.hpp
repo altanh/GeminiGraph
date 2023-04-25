@@ -42,6 +42,8 @@ Copyright (c) 2015-2016 Xiaowei Zhu, Tsinghua University
 #include "core/time.hpp"
 #include "core/type.hpp"
 
+using namespace std;
+
 enum ThreadStatus {
   WORKING,
   STEALING
@@ -399,6 +401,7 @@ public:
 
     if (header->row_size == 2 * sizeof(VertexId) && edge_data_size > 0) {
       // implicit edge data, we'll just initialize later with 1
+      // @manish: or we will initialize with random values
       // printf("Info: implicit edge data detected, will be initialized with 1\n");
       // pattern = true;
       // TODO: support implicit edge data
@@ -906,6 +909,7 @@ public:
       assert(curr_read_bytes>=0);
       read_bytes += curr_read_bytes;
       EdgeId curr_read_edges = curr_read_bytes / edge_unit_size;
+
       // fix off by one
       for (EdgeId e_i=0;e_i<curr_read_edges;e_i++) {
         read_edge_buffer[e_i].src -= 1;
