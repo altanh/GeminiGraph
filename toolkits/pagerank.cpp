@@ -18,15 +18,17 @@ Copyright (c) 2014-2015 Xiaowei Zhu, Tsinghua University
 #include <stdlib.h>
 
 #include "core/graph.hpp"
+#include "DGB.h"
 
 #include <math.h>
 
 const double d = (double)0.85;
 
-void compute(Graph<Empty> * graph, int iterations) {
+void compute(Graph<Empty> * graph, int iterations, dgb::Timer *timer) {
   double exec_time = 0;
   exec_time -= get_time();
 
+  timer->reset("init_vec");
   double * curr = graph->alloc_vertex_array<double>();
   double * next = graph->alloc_vertex_array<double>();
   VertexSubset * active = graph->alloc_vertex_subset();
@@ -43,7 +45,9 @@ void compute(Graph<Empty> * graph, int iterations) {
     active
   );
   delta /= graph->vertices;
+  timer->elapsed();
 
+  timer->reset("pagerank");
   for (int i_i=0;i_i<iterations;i_i++) {
     if (graph->partition_id==0) {
       printf("delta(%d)=%lf\n", i_i, delta);
@@ -98,6 +102,7 @@ void compute(Graph<Empty> * graph, int iterations) {
     delta /= graph->vertices;
     std::swap(curr, next);
   }
+  timer->elapsed();
 
   exec_time += get_time();
   if (graph->partition_id==0) {
@@ -136,15 +141,23 @@ int main(int argc, char ** argv) {
     exit(-1);
   }
 
+  dgb::Timer timer;
+
   Graph<Empty> * graph;
   graph = new Graph<Empty>();
-  graph->load_directed(argv[1], std::atoi(argv[2]));
-  int iterations = std::atoi(argv[3]);
 
-  compute(graph, iterations);
-  for (int run=0;run<5;run++) {
-    compute(graph, iterations);
+  timer.reset("load");
+  graph->load_directed(argv[1], std::atoi(argv[2]));
+  timer.elapsed();
+
+  int iterations = std::atoi(argv[3]);
+  int trials = dgb::get_trials("GEMINI");
+
+  for (int run=0;run<trials;run++) {
+    compute(graph, iterations, &timer);
   }
+
+  timer.save(dgb::get_timer_output(argv[1], "GEMINI", "pr"));
 
   delete graph;
   return 0;

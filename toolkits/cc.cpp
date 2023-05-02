@@ -18,11 +18,13 @@ Copyright (c) 2014-2015 Xiaowei Zhu, Tsinghua University
 #include <stdlib.h>
 
 #include "core/graph.hpp"
+#include "DGB.h"
 
-void compute(Graph<Empty> * graph) {
+void compute(Graph<Empty> * graph, dgb::Timer *timer) {
   double exec_time = 0;
   exec_time -= get_time();
 
+  timer->reset("init_vec");
   VertexId * label = graph->alloc_vertex_array<VertexId>();
   VertexSubset * active_in = graph->alloc_vertex_subset();
   active_in->fill();
@@ -35,7 +37,9 @@ void compute(Graph<Empty> * graph) {
     },
     active_in
   );
+  timer->elapsed();
 
+  timer->reset("cc");
   for (int i_i=0;active_vertices>0;i_i++) {
     if (graph->partition_id==0) {
       printf("active(%d)>=%u\n", i_i, active_vertices);
@@ -81,6 +85,7 @@ void compute(Graph<Empty> * graph) {
     );
     std::swap(active_in, active_out);
   }
+  timer->elapsed();
 
   exec_time += get_time();
   if (graph->partition_id==0) {
@@ -116,14 +121,22 @@ int main(int argc, char ** argv) {
     exit(-1);
   }
 
+  dgb::Timer timer;
+
   Graph<Empty> * graph;
   graph = new Graph<Empty>();
-  graph->load_undirected_from_directed(argv[1], std::atoi(argv[2]));
 
-  compute(graph);
-  for (int run=0;run<5;run++) {
-    compute(graph);
+  timer.reset("load");
+  graph->load_undirected_from_directed(argv[1], std::atoi(argv[2]));
+  timer.elapsed();
+
+  int trials = dgb::get_trials("GEMINI");
+
+  for (int run=0;run<trials;run++) {
+    compute(graph, &timer);
   }
+
+  timer.save(dgb::get_timer_output(argv[1], "GEMINI", "cc"));
 
   delete graph;
   return 0;

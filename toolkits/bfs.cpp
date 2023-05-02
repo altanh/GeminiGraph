@@ -18,11 +18,13 @@ Copyright (c) 2014-2015 Xiaowei Zhu, Tsinghua University
 #include <stdlib.h>
 
 #include "core/graph.hpp"
+#include "DGB.h"
 
-void compute(Graph<Empty> * graph, VertexId root) {
+void compute(Graph<Empty> * graph, VertexId root, dgb::Timer *timer) {
   double exec_time = 0;
   exec_time -= get_time();
 
+  timer->reset("init_vec");
   VertexId * parent = graph->alloc_vertex_array<VertexId>();
   VertexSubset * visited = graph->alloc_vertex_subset();
   VertexSubset * active_in = graph->alloc_vertex_subset();
@@ -37,6 +39,9 @@ void compute(Graph<Empty> * graph, VertexId root) {
 
   VertexId active_vertices = 1;
 
+  timer->elapsed();
+
+  timer->reset("bfs");
   for (int i_i=0;active_vertices>0;i_i++) {
     if (graph->partition_id==0) {
       printf("active(%d)>=%u\n", i_i, active_vertices);
@@ -85,6 +90,7 @@ void compute(Graph<Empty> * graph, VertexId root) {
     );
     std::swap(active_in, active_out);
   }
+  timer->elapsed();
 
   exec_time += get_time();
   if (graph->partition_id==0) {
@@ -116,15 +122,23 @@ int main(int argc, char ** argv) {
     exit(-1);
   }
 
+  dgb::Timer timer;
+
   Graph<Empty> * graph;
   graph = new Graph<Empty>();
   VertexId root = std::atoi(argv[3]);
-  graph->load_directed(argv[1], std::atoi(argv[2]));
 
-  compute(graph, root);
-  for (int run=0;run<5;run++) {
-    compute(graph, root);
+  timer.reset("load");
+  graph->load_directed(argv[1], std::atoi(argv[2]));
+  timer.elapsed();
+
+  int trials = dgb::get_trials("GEMINI");
+
+  for (int run=0;run<trials;run++) {
+    compute(graph, root, &timer);
   }
+
+  timer.save(dgb::get_timer_output(argv[1], "GEMINI", "bfs"));
 
   delete graph;
   return 0;

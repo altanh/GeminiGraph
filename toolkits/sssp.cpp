@@ -18,13 +18,15 @@ Copyright (c) 2014-2015 Xiaowei Zhu, Tsinghua University
 #include <stdlib.h>
 
 #include "core/graph.hpp"
+#include "DGB.h"
 
 typedef float Weight;
 
-void compute(Graph<Weight> * graph, VertexId root) {
+void compute(Graph<Weight> * graph, VertexId root, dgb::Timer *timer) {
   double exec_time = 0;
   exec_time -= get_time();
 
+  timer->reset("init_vec");
   Weight * distance = graph->alloc_vertex_array<Weight>();
   VertexSubset * active_in = graph->alloc_vertex_subset();
   VertexSubset * active_out = graph->alloc_vertex_subset();
@@ -33,7 +35,9 @@ void compute(Graph<Weight> * graph, VertexId root) {
   graph->fill_vertex_array(distance, (Weight)1e9);
   distance[root] = (Weight)0;
   VertexId active_vertices = 1;
-  
+  timer->elapsed();
+
+  timer->reset("sssp");
   for (int i_i=0;active_vertices>0;i_i++) {
     if (graph->partition_id==0) {
       printf("active(%d)>=%u\n", i_i, active_vertices);
@@ -82,6 +86,7 @@ void compute(Graph<Weight> * graph, VertexId root) {
     );
     std::swap(active_in, active_out);
   }
+  timer->elapsed();
 
   exec_time += get_time();
   if (graph->partition_id==0) {
@@ -112,15 +117,23 @@ int main(int argc, char ** argv) {
     exit(-1);
   }
 
+  dgb::Timer timer;
+
   Graph<Weight> * graph;
   graph = new Graph<Weight>();
-  graph->load_directed(argv[1], std::atoi(argv[2]));
-  VertexId root = std::atoi(argv[3]);
 
-  compute(graph, root);
-  for (int run=0;run<5;run++) {
-    compute(graph, root);
+  timer.reset("load");
+  graph->load_directed(argv[1], std::atoi(argv[2]));
+  timer.elapsed();
+
+  VertexId root = std::atoi(argv[3]);
+  const int trials = dgb::get_trials("GEMINI");
+
+  for (int run=0;run<trials;run++) {
+    compute(graph, root, &timer);
   }
+
+  timer.save(dgb::get_timer_output(argv[1], "GEMINI", "sssp"));
 
   delete graph;
   return 0;
