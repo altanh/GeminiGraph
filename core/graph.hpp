@@ -170,6 +170,10 @@ public:
     sockets = numa_num_configured_nodes();
     threads_per_socket = threads / sockets;
 
+    printf("threads = %d\n", threads);
+    printf("sockets = %d\n", sockets);
+    printf("threads_per_socket = %d\n", threads_per_socket);
+
     init();
   }
 
