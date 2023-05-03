@@ -117,7 +117,7 @@ void compute(Graph<Empty> * graph, VertexId root, dgb::Timer *timer) {
 int main(int argc, char ** argv) {
   MPI_Instance mpi(&argc, &argv);
 
-  if (argc<4) {
+  if (argc<3) {
     printf("bfs [file] [vertices] [root]\n");
     exit(-1);
   }
@@ -126,16 +126,28 @@ int main(int argc, char ** argv) {
 
   Graph<Empty> * graph;
   graph = new Graph<Empty>();
-  VertexId root = std::atoi(argv[3]);
 
   timer.reset("load");
   graph->load_directed(argv[1], std::atoi(argv[2]));
   timer.elapsed();
 
+  std::vector<int64_t> sources = dgb::get_sources(argv[1]);
+  if (sources.empty() || argc > 3) {
+    if (argc < 4) {
+      MAIN_COUT("ERROR: no source specified");
+      return 1;
+    }
+    sources = {atoll(argv[3])};
+    MAIN_COUT("using source from command line: " << sources[0]);
+  }
+
   int trials = dgb::get_trials("GEMINI");
 
-  for (int run=0;run<trials;run++) {
-    compute(graph, root, &timer);
+  for (auto root : sources) {
+    MAIN_COUT("running bfs with source " << root << std::endl);
+    for (int run=0;run<trials;run++) {
+      compute(graph, root, &timer);
+    }
   }
 
   timer.save(dgb::get_timer_output(argv[1], "GEMINI", "bfs"));
