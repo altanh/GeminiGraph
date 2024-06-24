@@ -111,17 +111,18 @@ void compute(Graph<Empty> * graph) {
 int main(int argc, char ** argv) {
   MPI_Instance mpi(&argc, &argv);
 
-  if (argc<3) {
-    printf("cc [file] [vertices]\n");
+  if (argc<4) {
+    printf("cc [file] [vertices] [extra-runs]\n");
     exit(-1);
   }
-
+  
   Graph<Empty> * graph;
   graph = new Graph<Empty>();
   graph->load_undirected_from_directed(argv[1], std::atoi(argv[2]));
-
   compute(graph);
-  for (int run=0;run<5;run++) {
+
+  int nruns = std::atoi(argv[3]);
+  for (int run=0;run<nruns;run++) {
     compute(graph);
   }
 

@@ -62,7 +62,7 @@ void compute(Graph<Weight> * graph, VertexId root) {
         for (AdjUnit<Weight> * ptr=incoming_adj.begin;ptr!=incoming_adj.end;ptr++) {
           VertexId src = ptr->neighbour;
           // if (active_in->get_bit(src)) {
-            Weight relax_dist = distance[src] + ptr->edge_data;
+            Weight relax_dist = distance[src] + ptr->edge_data; // @manish: This is where the edge weight is added to the distance
             if (relax_dist < msg) {
               msg = relax_dist;
             }
@@ -107,8 +107,8 @@ void compute(Graph<Weight> * graph, VertexId root) {
 int main(int argc, char ** argv) {
   MPI_Instance mpi(&argc, &argv);
 
-  if (argc<4) {
-    printf("sssp [file] [vertices] [root]\n");
+  if (argc<5) {
+    printf("sssp [file] [vertices] [root] [extra-runs]\n");
     exit(-1);
   }
 
@@ -116,8 +116,9 @@ int main(int argc, char ** argv) {
   graph = new Graph<Weight>();
   graph->load_directed(argv[1], std::atoi(argv[2]));
   VertexId root = std::atoi(argv[3]);
-
   compute(graph, root);
+  
+  int nruns = std::atoi(argv[4]);
   for (int run=0;run<5;run++) {
     compute(graph, root);
   }

@@ -406,8 +406,8 @@ void compute_compact(Graph<Empty> * graph, VertexId root) {
 int main(int argc, char ** argv) {
   MPI_Instance mpi(&argc, &argv);
 
-  if (argc<4) {
-    printf("bc [file] [vertices] [root]\n");
+  if (argc<5) {
+    printf("bc [file] [vertices] [root] [extra-runs]\n");
     exit(-1);
   }
 
@@ -421,7 +421,9 @@ int main(int argc, char ** argv) {
   #else
   compute(graph, root);
   #endif
-  for (int run=0;run<5;run++) {
+  
+  int nruns = std::atoi(argv[4]);
+  for (int run=0;run<nruns;run++) {
     #if COMPACT
     compute_compact(graph, root);
     #else
